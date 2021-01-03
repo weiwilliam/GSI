@@ -101,7 +101,7 @@ subroutine read_files(mype)
   use module_fv3gfs_ncio, only: Dataset, Dimension, open_dataset, get_dim, &
                                 read_vardata, get_idate_from_time_units, &
                                 close_dataset
-  use chemmod, only: lread_ext_aerosol
+  use chemmod, only: lread_ext_aerosol, lmerra2aer
   
   implicit none
 
@@ -146,7 +146,7 @@ subroutine read_files(mype)
   type(nstio_head):: nst_head
   type(nemsio_gfile) :: gfile_atm,gfile_sfc,gfile_nst,gfile_aer
   logical :: print_verbose
-  type(Dataset) :: atmges, sfcges, nstges
+  type(Dataset) :: atmges, sfcges, nstges, aerges
   type(Dimension) :: ncdim
 
 
@@ -518,6 +518,16 @@ subroutine read_files(mype)
            write(6,*)'READ_FILES:  process ',trim(filename)
            if ( .not. use_gfs_nemsio ) then
               write(6,*)'READ_FILES: ***ERROR*** aerosol files only work with nemsio'
+           else if ( lmerra2aer ) then
+              aerges = open_dataset(filename)
+              idate6 = get_idate_from_time_units(aerges)
+              call read_vardata(aerges, 'time', fhour) ! merra2 is in minutes
+              hourg4 = float(nint(fhour(1)/60.)) ! going to make this nearest integer for now
+              idateg(1) = idate6(4)
+              idateg(2) = idate6(2)
+              idateg(3) = idate6(3)
+              idateg(4) = idate6(1)
+              call close_dataset(aerges)
            else
               call nemsio_init(iret=iret)
               call nemsio_open(gfile_aer,filename,'READ',iret=iret)

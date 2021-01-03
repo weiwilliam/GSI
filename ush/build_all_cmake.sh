@@ -7,6 +7,7 @@ pwd=$(pwd)
 
 build_type=${1:-'PRODUCTION'}
 dir_root=${2:-$pwd}
+builddir=${3:-$dir_root/build}
 
 if [[ -d /dcom && -d /hwrf ]] ; then
     . /usrx/local/Modules/3.2.10/init/sh
@@ -53,11 +54,11 @@ if [ ! -d $dir_modules ]; then
     echo "modulefiles does not exist in $dir_modules"
     exit 10
 fi
-[ -d $dir_root/exec ] || mkdir -p $dir_root/exec
 
-rm -rf $dir_root/build
-mkdir -p $dir_root/build
-cd $dir_root/build
+rm -rf $builddir
+mkdir -p $builddir
+[ -d $builddir/exec ] || mkdir -p $builddir/exec
+cd $builddir
 
 if [ $target = wcoss_d ]; then
     module purge
@@ -80,9 +81,9 @@ else
 fi
 
 if [ $build_type = PRODUCTION -o $build_type = DEBUG ] ; then
-  cmake -DBUILD_UTIL=ON -DBUILD_NCDIAG_SERIAL=ON -DCMAKE_BUILD_TYPE=$build_type -DBUILD_CORELIBS=OFF ..
+  cmake -DBUILD_UTIL=ON -DBUILD_NCDIAG_SERIAL=ON -DCMAKE_BUILD_TYPE=$build_type -DBUILD_CORELIBS=OFF $dir_root
 else 
-  cmake ..
+  cmake $dir_root
 fi
 
 make -j 8

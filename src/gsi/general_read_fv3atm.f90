@@ -57,6 +57,7 @@ subroutine general_read_fv3atm_nems(grd,sp_a,filename,uvflag,vordivflag,zflag, &
    use gsi_bundlemod, only: gsi_bundlegetpointer
    use gsi_metguess_mod, only: gsi_metguess_get   
    use ncepnems_io, only: imp_physics
+   use gfsreadmod, only: general_fill_ns, general_filluv_ns
 
 
    implicit none

@@ -537,7 +537,7 @@ contains
     use guess_grids, only: ifilesig,ifileaer,nfldaer
     use general_sub2grid_mod, only: sub2grid_info,general_sub2grid_create_info,general_sub2grid_destroy_info
     use mpimod, only: npe
-    use chemmod, only: lread_ext_aerosol
+    use chemmod, only: lread_ext_aerosol,lmerra2aer
 
     implicit none
 
@@ -626,8 +626,14 @@ contains
           if (mype==0) write(6,*) "aerosol field come from ",filename
 
           ier=0
-          call general_read_nemsaero(grd_ae,sp_a,filename,mype,chem_bundle,&
-            n_aerosols_fwd,aerosol_names_fwd,.true.,ier)
+          if (lmerra2aer) then
+             if ( .not. lread_ext_aerosol) call stop2(401)
+             call general_read_m2aero(grd_ae,sp_a,filename,chem_bundle,&
+                                      n_aerosols_fwd,aerosol_names_fwd,.true.,ier)
+          else
+             call general_read_nemsaero(grd_ae,sp_a,filename,chem_bundle,&
+                                        n_aerosols_fwd,aerosol_names_fwd,.true.,ier)
+          end if
 
           do ia=1,n_aerosols_fwd
 

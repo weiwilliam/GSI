@@ -326,6 +326,7 @@ contains
     real(r_kind),pointer,dimension(:,:,:)::p_co2=>NULL()
     real(r_kind),pointer,dimension(:,:,:)::ptr3d=>NULL()
 
+
     if(.not.associated(gsi_chemguess_bundle)) return
     call gsi_bundlegetpointer(gsi_chemguess_bundle(1),'co2',p_co2,iret)
     if(iret /= 0) return

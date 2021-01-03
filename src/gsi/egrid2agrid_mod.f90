@@ -1543,6 +1543,7 @@ module egrid2agrid_mod
          rlone_ex(j)=rlone(nlone-nextend+j)-two_pi
          rlone_ex(nextend+nlone+j)=two_pi+rlone(j)
       end do
+
       call get_3ops(p%e2a_lon,nlona,rlona,nlone_ex,rlone_ex,nord_e2a,e2a_only)
       call get_3ops(p%e2a_lat,nlata,rlata,nlate_ex,rlate_ex,nord_e2a,e2a_only)
 

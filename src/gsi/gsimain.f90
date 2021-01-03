@@ -530,6 +530,7 @@
 !          = 342 - setuplight: failure to allocate obsdiags
 !          = 343 - setuplight: failure to allocate obsdiags
 !          = 344 - setuplight: index error
+!          = 401 - lread_ext_aerosol must be true when lmerra2aer is true
 !          = 899 - foto no longer available
 !
 !

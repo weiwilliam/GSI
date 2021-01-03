@@ -1,5 +1,12 @@
 module gfsreadmod
 
+private
+public :: general_fill_ns
+public :: general_fillu_ns
+public :: general_fillv_ns
+public :: general_filluv_ns
+public :: general_reload
+
 contains
 subroutine general_reload(grd,g_z,g_ps,g_tv,g_vor,g_div,g_u,g_v,g_q,g_oz,g_cwmr, &
            icount,iflag,ilev,work,uvflag,vdflag,g_cf)  
@@ -189,6 +196,389 @@ subroutine general_reload(grd,g_z,g_ps,g_tv,g_vor,g_div,g_u,g_v,g_q,g_oz,g_cwmr,
 
 end subroutine general_reload
 
+subroutine general_fill_ns(grd,grid_in,grid_out)
+
+! !USES:
+
+   use kinds, only: r_kind,i_kind
+   use constants, only: zero,one
+   use general_sub2grid_mod, only: sub2grid_info
+   implicit none
+
+! !INPUT PARAMETERS:
+
+   type(sub2grid_info),                           intent(in   ) :: grd
+   real(r_kind),dimension(grd%nlon,grd%nlat-2),   intent(in   ) :: grid_in  ! input grid
+   real(r_kind),dimension(grd%itotsub),           intent(  out) :: grid_out ! output grid
+
+! !DESCRIPTION: This routine adds a southern and northern latitude
+!               row to the input grid.  The southern row contains
+!               the longitudinal mean of the adjacent latitude row.
+!               The northern row contains the longitudinal mean of
+!               the adjacent northern row.
+!
+!               The added rows correpsond to the south and north poles.
+!
+!               In addition to adding latitude rows corresponding to the
+!               south and north poles, the routine reorder the output
+!               array so that it is a one-dimensional array read in
+!               an order consisten with that assumed for total domain
+!               gsi grids.
+!
+!               The assumed order for the input grid is longitude as
+!               the first dimension with array index increasing from
+!               east to west.  The second dimension is latitude with
+!               the index increasing from north to south.  This ordering
+!               differs from that used in the GSI.
+!
+!               The GSI ordering is latitude first with the index
+!               increasing from south to north.  The second dimension is
+!               longitude with the index increasing from east to west.
+!
+!               Thus, the code below also rearranges the indexing and
+!               order of the dimensions to make the output grid
+!               consistent with that which is expected in the rest of
+!               gsi.
+!
+!
+! !REVISION HISTORY:
+!   2004-08-27  treadon
+!
+! !REMARKS:
+!   language: f90
+!   machine:  ibm rs/6000
+!
+! !AUTHOR:
+!   treadon          org: np23                date: 2004-08-27
+!
+!EOP
+!-------------------------------------------------------------------------
+   ! Declare local variables
+   integer(i_kind) i,j,k,nlatm2
+   real(r_kind) rnlon,sumn,sums
+
+   ! Compute mean along southern and northern latitudes
+   sumn=zero
+   sums=zero
+   nlatm2=grd%nlat-2
+   do i=1,grd%nlon
+      sumn=sumn+grid_in(i,1)
+      sums=sums+grid_in(i,nlatm2)
+   enddo
+   rnlon=one/float(grd%nlon)
+   sumn=sumn*rnlon
+   sums=sums*rnlon
+
+   ! Transfer local work array to output grid
+   do k=1,grd%itotsub
+      j=grd%nlat-grd%ltosi_s(k)
+      if ( j == grd%nlat-1) then
+        grid_out(k)=sums
+      elseif ( j == 0) then
+        grid_out(k) = sumn
+      else
+        i=grd%ltosj_s(k)
+        grid_out(k)=grid_in(i,j)
+      endif
+   enddo
+
+   return
+end subroutine general_fill_ns
+
+subroutine general_filluv_ns(grd,slons,clons,gridu_in,gridv_in,gridu_out,gridv_out)
+
+! !USES:
+
+   use kinds, only: r_kind,i_kind
+   use constants, only: zero
+   use general_sub2grid_mod, only: sub2grid_info
+   implicit none
+
+! !INPUT PARAMETERS:
+
+   type(sub2grid_info),                        intent(in   ) :: grd
+   real(r_kind),dimension(grd%nlon),           intent(in   ) :: slons,clons
+   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
+   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridu_out,gridv_out ! output grid
+
+! !DESCRIPTION: This routine adds a southern and northern latitude
+!               row to the input grid.  The southern row contains
+!               the longitudinal mean of the adjacent latitude row.
+!               The northern row contains the longitudinal mean of
+!               the adjacent northern row.
+!
+!               The added rows correpsond to the south and north poles.
+!
+!               In addition to adding latitude rows corresponding to the
+!               south and north poles, the routine reorder the output
+!               array so that it is a one-dimensional array read in
+!               an order consisten with that assumed for total domain
+!               gsi grids.
+!
+!               The assumed order for the input grid is longitude as
+!               the first dimension with array index increasing from
+!               east to west.  The second dimension is latitude with
+!               the index increasing from north to south.  This ordering
+!               differs from that used in the GSI.
+!
+!               The GSI ordering is latitude first with the index
+!               increasing from south to north.  The second dimension is
+!               longitude with the index increasing from east to west.
+!
+!               Thus, the code below also rearranges the indexing and
+!               order of the dimensions to make the output grid
+!               consistent with that which is expected in the rest of
+!               gsi.
+!
+!
+! !REVISION HISTORY:
+!   2004-08-27  treadon
+!
+! !REMARKS:
+!   language: f90
+!   machine:  ibm rs/6000
+!
+! !AUTHOR:
+!   treadon          org: np23                date: 2004-08-27
+!
+!EOP
+!-------------------------------------------------------------------------
+   ! Declare local variables
+   integer(i_kind) i,j,k,nlatm2
+   real(r_kind) polnu,polnv,polsu,polsv
+
+
+   ! Compute mean along southern and northern latitudes
+   polnu=zero
+   polnv=zero
+   polsu=zero
+   polsv=zero
+   nlatm2=grd%nlat-2
+   do i=1,grd%nlon
+      polnu=polnu+gridu_in(i,1     )*clons(i)-gridv_in(i,1     )*slons(i)
+      polnv=polnv+gridu_in(i,1     )*slons(i)+gridv_in(i,1     )*clons(i)
+      polsu=polsu+gridu_in(i,nlatm2)*clons(i)+gridv_in(i,nlatm2)*slons(i)
+      polsv=polsv+gridu_in(i,nlatm2)*slons(i)-gridv_in(i,nlatm2)*clons(i)
+   enddo
+   polnu=polnu/float(grd%nlon)
+   polnv=polnv/float(grd%nlon)
+   polsu=polsu/float(grd%nlon)
+   polsv=polsv/float(grd%nlon)
+
+   ! Transfer local work array to output grid
+   do k=1,grd%itotsub
+      j=grd%nlat-grd%ltosi_s(k)
+      i=grd%ltosj_s(k)
+      if ( j == grd%nlat-1 ) then
+        gridu_out(k) = polsu*clons(i)+polsv*slons(i)
+        gridv_out(k) = polsu*slons(i)-polsv*clons(i)
+      elseif ( j == 0) then
+        gridu_out(k) = polnu*clons(i)+polnv*slons(i)
+        gridv_out(k) = -polnu*slons(i)+polnv*clons(i)
+      else
+        gridu_out(k)=gridu_in(i,j)
+        gridv_out(k)=gridv_in(i,j)
+      endif
+   enddo
+
+   return
+end subroutine general_filluv_ns
+subroutine general_fillu_ns(grd,sp,gridu_in,gridv_in,gridu_out)
+
+! !USES:
+
+   use kinds, only: r_kind,i_kind
+   use constants, only: zero
+   use general_sub2grid_mod, only: sub2grid_info
+   use general_specmod, only: spec_vars
+   implicit none
+
+! !INPUT PARAMETERS:
+
+   type(sub2grid_info),                        intent(in   ) :: grd
+   type(spec_vars),                            intent(in   ) :: sp
+   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
+   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridu_out ! output grid
+
+! !DESCRIPTION: This routine adds a southern and northern latitude
+!               row to the u input grid.  The southern row contains
+!               the longitudinal mean of the adjacent latitude row.
+!               The northern row contains the longitudinal mean of
+!               the adjacent northern row.
+!
+!               The added rows correpsond to the south and north poles.
+!
+!               In addition to adding latitude rows corresponding to the
+!               south and north poles, the routine reorder the output
+!               array so that it is a one-dimensional array read in
+!               an order consisten with that assumed for total domain
+!               gsi grids.
+!
+!               The assumed order for the input grid is longitude as
+!               the first dimension with array index increasing from
+!               east to west.  The second dimension is latitude with
+!               the index increasing from north to south.  This ordering
+!               differs from that used in the GSI.
+!
+!               The GSI ordering is latitude first with the index
+!               increasing from south to north.  The second dimension is
+!               longitude with the index increasing from east to west.
+!
+!               Thus, the code below also rearranges the indexing and
+!               order of the dimensions to make the output grid
+!               consistent with that which is expected in the rest of
+!               gsi.
+!
+!
+! !REVISION HISTORY:
+!   2004-08-27  treadon
+!   2014-12-03  derber     - create specialized routine to just update u
+!
+! !REMARKS:
+!   language: f90
+!   machine:  ibm rs/6000
+!
+! !AUTHOR:
+!   treadon          org: np23                date: 2004-08-27
+!
+!EOP
+!-------------------------------------------------------------------------
+   ! Declare local variables
+   integer(i_kind) i,j,k,nlatm2
+   real(r_kind) polnu,polnv,polsu,polsv
+
+
+   ! Compute mean along southern and northern latitudes
+   polnu=zero
+   polnv=zero
+   polsu=zero
+   polsv=zero
+   nlatm2=grd%nlat-2
+   do i=1,grd%nlon
+      polnu=polnu+gridu_in(i,1     )*sp%clons(i)-gridv_in(i,1     )*sp%slons(i)
+      polnv=polnv+gridu_in(i,1     )*sp%slons(i)+gridv_in(i,1     )*sp%clons(i)
+      polsu=polsu+gridu_in(i,nlatm2)*sp%clons(i)+gridv_in(i,nlatm2)*sp%slons(i)
+      polsv=polsv+gridu_in(i,nlatm2)*sp%slons(i)-gridv_in(i,nlatm2)*sp%clons(i)
+   enddo
+   polnu=polnu/float(grd%nlon)
+   polnv=polnv/float(grd%nlon)
+   polsu=polsu/float(grd%nlon)
+   polsv=polsv/float(grd%nlon)
+
+   ! Transfer local work array to output grid
+   do k=1,grd%itotsub
+      j=grd%nlat-grd%ltosi_s(k)
+      i=grd%ltosj_s(k)
+      if ( j == grd%nlat-1 ) then
+        gridu_out(k) = polsu*sp%clons(i)+polsv*sp%slons(i)
+      elseif ( j == 0) then
+        gridu_out(k) = polnu*sp%clons(i)+polnv*sp%slons(i)
+      else
+        gridu_out(k)=gridu_in(i,j)
+      endif
+   enddo
+
+   return
+end subroutine general_fillu_ns
+
+subroutine general_fillv_ns(grd,sp,gridu_in,gridv_in,gridv_out)
+
+! !USES:
+
+   use kinds, only: r_kind,i_kind
+   use constants, only: zero
+   use general_sub2grid_mod, only: sub2grid_info
+   use general_specmod, only: spec_vars
+   implicit none
+
+! !INPUT PARAMETERS:
+
+   type(sub2grid_info),                        intent(in   ) :: grd
+   type(spec_vars),                            intent(in   ) :: sp
+   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
+   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridv_out ! output grid
+
+! !DESCRIPTION: This routine adds a southern and northern latitude
+!               row to the v input grid.  The southern row contains
+!               the longitudinal mean of the adjacent latitude row.
+!               The northern row contains the longitudinal mean of
+!               the adjacent northern row.
+!
+!               The added rows correpsond to the south and north poles.
+!
+!               In addition to adding latitude rows corresponding to the
+!               south and north poles, the routine reorder the output
+!               array so that it is a one-dimensional array read in
+!               an order consisten with that assumed for total domain
+!               gsi grids.
+!
+!               The assumed order for the input grid is longitude as
+!               the first dimension with array index increasing from
+!               east to west.  The second dimension is latitude with
+!               the index increasing from north to south.  This ordering
+!               differs from that used in the GSI.
+!
+!               The GSI ordering is latitude first with the index
+!               increasing from south to north.  The second dimension is
+!               longitude with the index increasing from east to west.
+!
+!               Thus, the code below also rearranges the indexing and
+!               order of the dimensions to make the output grid
+!               consistent with that which is expected in the rest of
+!               gsi.
+!
+!
+! !REVISION HISTORY:
+!   2004-08-27  treadon
+!   2014-12-03  derber     - create specialized routine to just update v
+!
+! !REMARKS:
+!   language: f90
+!   machine:  ibm rs/6000
+!
+! !AUTHOR:
+!   treadon          org: np23                date: 2004-08-27
+!
+!EOP
+!-------------------------------------------------------------------------
+   ! Declare local variables
+   integer(i_kind) i,j,k,nlatm2
+   real(r_kind) polnu,polnv,polsu,polsv
+
+
+   ! Compute mean along southern and northern latitudes
+   polnu=zero
+   polnv=zero
+   polsu=zero
+   polsv=zero
+   nlatm2=grd%nlat-2
+   do i=1,grd%nlon
+      polnu=polnu+gridu_in(i,1     )*sp%clons(i)-gridv_in(i,1     )*sp%slons(i)
+      polnv=polnv+gridu_in(i,1     )*sp%slons(i)+gridv_in(i,1     )*sp%clons(i)
+      polsu=polsu+gridu_in(i,nlatm2)*sp%clons(i)+gridv_in(i,nlatm2)*sp%slons(i)
+      polsv=polsv+gridu_in(i,nlatm2)*sp%slons(i)-gridv_in(i,nlatm2)*sp%clons(i)
+   enddo
+   polnu=polnu/float(grd%nlon)
+   polnv=polnv/float(grd%nlon)
+   polsu=polsu/float(grd%nlon)
+   polsv=polsv/float(grd%nlon)
+
+   ! Transfer local work array to output grid
+   do k=1,grd%itotsub
+      j=grd%nlat-grd%ltosi_s(k)
+      i=grd%ltosj_s(k)
+      if ( j == grd%nlat-1 ) then
+        gridv_out(k) = polsu*sp%slons(i)-polsv*sp%clons(i)
+      elseif ( j == 0) then
+        gridv_out(k) = -polnu*sp%slons(i)+polnv*sp%clons(i)
+      else
+        gridv_out(k)=gridv_in(i,j)
+      endif
+   enddo
+
+   return
+end subroutine general_fillv_ns
+
 end module gfsreadmod
 
 subroutine general_read_gfsatm(grd,sp_a,sp_b,filename,uvflag,vordivflag,zflag, &
@@ -248,7 +638,8 @@ subroutine general_read_gfsatm(grd,sp_a,sp_b,filename,uvflag,vordivflag,zflag, &
                              sigio_rrdbti,sigio_rclose
    use ncepgfs_io, only: sigio_cnvtdv8,sighead
    use gsi_bundlemod, only: gsi_bundle,gsi_bundlegetpointer
-   use gfsreadmod, only: general_reload
+   use gfsreadmod, only: general_reload, general_fill_ns, general_filluv_ns,&
+                         general_fillu_ns, general_fillv_ns
 
    implicit none
 
@@ -821,7 +1212,7 @@ subroutine general_read_gfsatm_nems(grd,sp_a,filename,uvflag,vordivflag,zflag, &
    use gsi_bundlemod, only: gsi_bundle
    use gsi_bundlemod, only: gsi_bundlegetpointer
    use jfunc, only: cnvw_option
-   use gfsreadmod, only: general_reload
+   use gfsreadmod, only: general_reload, general_fill_ns, general_filluv_ns
    use guess_grids, only: ifilesfc
 
    implicit none
@@ -1670,7 +2061,7 @@ subroutine general_read_gfsatm_nc(grd,sp_a,filename,uvflag,vordivflag,zflag, &
    use gsi_bundlemod, only: gsi_bundlegetpointer
    use module_fv3gfs_ncio, only: Dataset, Variable, Dimension, open_dataset,&
                            close_dataset, get_dim, read_vardata,get_idate_from_time_units
-   use gfsreadmod, only: general_reload
+   use gfsreadmod, only: general_reload, general_fill_ns, general_filluv_ns
 
    implicit none
 
@@ -2349,385 +2740,3 @@ subroutine general_read_gfsatm_nc(grd,sp_a,filename,uvflag,vordivflag,zflag, &
 
 end subroutine general_read_gfsatm_nc
 
-subroutine general_fill_ns(grd,grid_in,grid_out)
-
-! !USES:
-
-   use kinds, only: r_kind,i_kind
-   use constants, only: zero,one
-   use general_sub2grid_mod, only: sub2grid_info
-   implicit none
-
-! !INPUT PARAMETERS:
-
-   type(sub2grid_info),                           intent(in   ) :: grd
-   real(r_kind),dimension(grd%nlon,grd%nlat-2),   intent(in   ) :: grid_in  ! input grid
-   real(r_kind),dimension(grd%itotsub),           intent(  out) :: grid_out ! output grid
-
-! !DESCRIPTION: This routine adds a southern and northern latitude
-!               row to the input grid.  The southern row contains
-!               the longitudinal mean of the adjacent latitude row.
-!               The northern row contains the longitudinal mean of
-!               the adjacent northern row.
-!
-!               The added rows correpsond to the south and north poles.
-!
-!               In addition to adding latitude rows corresponding to the
-!               south and north poles, the routine reorder the output
-!               array so that it is a one-dimensional array read in
-!               an order consisten with that assumed for total domain
-!               gsi grids.
-!
-!               The assumed order for the input grid is longitude as
-!               the first dimension with array index increasing from
-!               east to west.  The second dimension is latitude with
-!               the index increasing from north to south.  This ordering
-!               differs from that used in the GSI.
-!
-!               The GSI ordering is latitude first with the index
-!               increasing from south to north.  The second dimension is
-!               longitude with the index increasing from east to west.
-!
-!               Thus, the code below also rearranges the indexing and
-!               order of the dimensions to make the output grid
-!               consistent with that which is expected in the rest of
-!               gsi.
-!
-!
-! !REVISION HISTORY:
-!   2004-08-27  treadon
-!
-! !REMARKS:
-!   language: f90
-!   machine:  ibm rs/6000
-!
-! !AUTHOR:
-!   treadon          org: np23                date: 2004-08-27
-!
-!EOP
-!-------------------------------------------------------------------------
-   ! Declare local variables
-   integer(i_kind) i,j,k,nlatm2
-   real(r_kind) rnlon,sumn,sums
-
-   ! Compute mean along southern and northern latitudes
-   sumn=zero
-   sums=zero
-   nlatm2=grd%nlat-2
-   do i=1,grd%nlon
-      sumn=sumn+grid_in(i,1)
-      sums=sums+grid_in(i,nlatm2)
-   enddo
-   rnlon=one/float(grd%nlon)
-   sumn=sumn*rnlon
-   sums=sums*rnlon
-
-   ! Transfer local work array to output grid
-   do k=1,grd%itotsub
-      j=grd%nlat-grd%ltosi_s(k)
-      if ( j == grd%nlat-1) then
-        grid_out(k)=sums
-      elseif ( j == 0) then
-        grid_out(k) = sumn
-      else
-        i=grd%ltosj_s(k)
-        grid_out(k)=grid_in(i,j)
-      endif
-   enddo
-
-   return
-end subroutine general_fill_ns
-
-subroutine general_filluv_ns(grd,slons,clons,gridu_in,gridv_in,gridu_out,gridv_out)
-
-! !USES:
-
-   use kinds, only: r_kind,i_kind
-   use constants, only: zero
-   use general_sub2grid_mod, only: sub2grid_info
-   implicit none
-
-! !INPUT PARAMETERS:
-
-   type(sub2grid_info),                        intent(in   ) :: grd
-   real(r_kind),dimension(grd%nlon),           intent(in   ) :: slons,clons
-   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
-   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridu_out,gridv_out ! output grid
-
-! !DESCRIPTION: This routine adds a southern and northern latitude
-!               row to the input grid.  The southern row contains
-!               the longitudinal mean of the adjacent latitude row.
-!               The northern row contains the longitudinal mean of
-!               the adjacent northern row.
-!
-!               The added rows correpsond to the south and north poles.
-!
-!               In addition to adding latitude rows corresponding to the
-!               south and north poles, the routine reorder the output
-!               array so that it is a one-dimensional array read in
-!               an order consisten with that assumed for total domain
-!               gsi grids.
-!
-!               The assumed order for the input grid is longitude as
-!               the first dimension with array index increasing from
-!               east to west.  The second dimension is latitude with
-!               the index increasing from north to south.  This ordering
-!               differs from that used in the GSI.
-!
-!               The GSI ordering is latitude first with the index
-!               increasing from south to north.  The second dimension is
-!               longitude with the index increasing from east to west.
-!
-!               Thus, the code below also rearranges the indexing and
-!               order of the dimensions to make the output grid
-!               consistent with that which is expected in the rest of
-!               gsi.
-!
-!
-! !REVISION HISTORY:
-!   2004-08-27  treadon
-!
-! !REMARKS:
-!   language: f90
-!   machine:  ibm rs/6000
-!
-! !AUTHOR:
-!   treadon          org: np23                date: 2004-08-27
-!
-!EOP
-!-------------------------------------------------------------------------
-   ! Declare local variables
-   integer(i_kind) i,j,k,nlatm2
-   real(r_kind) polnu,polnv,polsu,polsv
-
-
-   ! Compute mean along southern and northern latitudes
-   polnu=zero
-   polnv=zero
-   polsu=zero
-   polsv=zero
-   nlatm2=grd%nlat-2
-   do i=1,grd%nlon
-      polnu=polnu+gridu_in(i,1     )*clons(i)-gridv_in(i,1     )*slons(i)
-      polnv=polnv+gridu_in(i,1     )*slons(i)+gridv_in(i,1     )*clons(i)
-      polsu=polsu+gridu_in(i,nlatm2)*clons(i)+gridv_in(i,nlatm2)*slons(i)
-      polsv=polsv+gridu_in(i,nlatm2)*slons(i)-gridv_in(i,nlatm2)*clons(i)
-   enddo
-   polnu=polnu/float(grd%nlon)
-   polnv=polnv/float(grd%nlon)
-   polsu=polsu/float(grd%nlon)
-   polsv=polsv/float(grd%nlon)
-
-   ! Transfer local work array to output grid
-   do k=1,grd%itotsub
-      j=grd%nlat-grd%ltosi_s(k)
-      i=grd%ltosj_s(k)
-      if ( j == grd%nlat-1 ) then
-        gridu_out(k) = polsu*clons(i)+polsv*slons(i)
-        gridv_out(k) = polsu*slons(i)-polsv*clons(i)
-      elseif ( j == 0) then
-        gridu_out(k) = polnu*clons(i)+polnv*slons(i)
-        gridv_out(k) = -polnu*slons(i)+polnv*clons(i)
-      else
-        gridu_out(k)=gridu_in(i,j)
-        gridv_out(k)=gridv_in(i,j)
-      endif
-   enddo
-
-   return
-end subroutine general_filluv_ns
-subroutine general_fillu_ns(grd,sp,gridu_in,gridv_in,gridu_out)
-
-! !USES:
-
-   use kinds, only: r_kind,i_kind
-   use constants, only: zero
-   use general_sub2grid_mod, only: sub2grid_info
-   use general_specmod, only: spec_vars
-   implicit none
-
-! !INPUT PARAMETERS:
-
-   type(sub2grid_info),                        intent(in   ) :: grd
-   type(spec_vars),                            intent(in   ) :: sp
-   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
-   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridu_out ! output grid
-
-! !DESCRIPTION: This routine adds a southern and northern latitude
-!               row to the u input grid.  The southern row contains
-!               the longitudinal mean of the adjacent latitude row.
-!               The northern row contains the longitudinal mean of
-!               the adjacent northern row.
-!
-!               The added rows correpsond to the south and north poles.
-!
-!               In addition to adding latitude rows corresponding to the
-!               south and north poles, the routine reorder the output
-!               array so that it is a one-dimensional array read in
-!               an order consisten with that assumed for total domain
-!               gsi grids.
-!
-!               The assumed order for the input grid is longitude as
-!               the first dimension with array index increasing from
-!               east to west.  The second dimension is latitude with
-!               the index increasing from north to south.  This ordering
-!               differs from that used in the GSI.
-!
-!               The GSI ordering is latitude first with the index
-!               increasing from south to north.  The second dimension is
-!               longitude with the index increasing from east to west.
-!
-!               Thus, the code below also rearranges the indexing and
-!               order of the dimensions to make the output grid
-!               consistent with that which is expected in the rest of
-!               gsi.
-!
-!
-! !REVISION HISTORY:
-!   2004-08-27  treadon
-!   2014-12-03  derber     - create specialized routine to just update u
-!
-! !REMARKS:
-!   language: f90
-!   machine:  ibm rs/6000
-!
-! !AUTHOR:
-!   treadon          org: np23                date: 2004-08-27
-!
-!EOP
-!-------------------------------------------------------------------------
-   ! Declare local variables
-   integer(i_kind) i,j,k,nlatm2
-   real(r_kind) polnu,polnv,polsu,polsv
-
-
-   ! Compute mean along southern and northern latitudes
-   polnu=zero
-   polnv=zero
-   polsu=zero
-   polsv=zero
-   nlatm2=grd%nlat-2
-   do i=1,grd%nlon
-      polnu=polnu+gridu_in(i,1     )*sp%clons(i)-gridv_in(i,1     )*sp%slons(i)
-      polnv=polnv+gridu_in(i,1     )*sp%slons(i)+gridv_in(i,1     )*sp%clons(i)
-      polsu=polsu+gridu_in(i,nlatm2)*sp%clons(i)+gridv_in(i,nlatm2)*sp%slons(i)
-      polsv=polsv+gridu_in(i,nlatm2)*sp%slons(i)-gridv_in(i,nlatm2)*sp%clons(i)
-   enddo
-   polnu=polnu/float(grd%nlon)
-   polnv=polnv/float(grd%nlon)
-   polsu=polsu/float(grd%nlon)
-   polsv=polsv/float(grd%nlon)
-
-   ! Transfer local work array to output grid
-   do k=1,grd%itotsub
-      j=grd%nlat-grd%ltosi_s(k)
-      i=grd%ltosj_s(k)
-      if ( j == grd%nlat-1 ) then
-        gridu_out(k) = polsu*sp%clons(i)+polsv*sp%slons(i)
-      elseif ( j == 0) then
-        gridu_out(k) = polnu*sp%clons(i)+polnv*sp%slons(i)
-      else
-        gridu_out(k)=gridu_in(i,j)
-      endif
-   enddo
-
-   return
-end subroutine general_fillu_ns
-
-subroutine general_fillv_ns(grd,sp,gridu_in,gridv_in,gridv_out)
-
-! !USES:
-
-   use kinds, only: r_kind,i_kind
-   use constants, only: zero
-   use general_sub2grid_mod, only: sub2grid_info
-   use general_specmod, only: spec_vars
-   implicit none
-
-! !INPUT PARAMETERS:
-
-   type(sub2grid_info),                        intent(in   ) :: grd
-   type(spec_vars),                            intent(in   ) :: sp
-   real(r_kind),dimension(grd%nlon,grd%nlat-2),intent(in   ) :: gridu_in,gridv_in   ! input grid
-   real(r_kind),dimension(grd%itotsub),        intent(  out) :: gridv_out ! output grid
-
-! !DESCRIPTION: This routine adds a southern and northern latitude
-!               row to the v input grid.  The southern row contains
-!               the longitudinal mean of the adjacent latitude row.
-!               The northern row contains the longitudinal mean of
-!               the adjacent northern row.
-!
-!               The added rows correpsond to the south and north poles.
-!
-!               In addition to adding latitude rows corresponding to the
-!               south and north poles, the routine reorder the output
-!               array so that it is a one-dimensional array read in
-!               an order consisten with that assumed for total domain
-!               gsi grids.
-!
-!               The assumed order for the input grid is longitude as
-!               the first dimension with array index increasing from
-!               east to west.  The second dimension is latitude with
-!               the index increasing from north to south.  This ordering
-!               differs from that used in the GSI.
-!
-!               The GSI ordering is latitude first with the index
-!               increasing from south to north.  The second dimension is
-!               longitude with the index increasing from east to west.
-!
-!               Thus, the code below also rearranges the indexing and
-!               order of the dimensions to make the output grid
-!               consistent with that which is expected in the rest of
-!               gsi.
-!
-!
-! !REVISION HISTORY:
-!   2004-08-27  treadon
-!   2014-12-03  derber     - create specialized routine to just update v
-!
-! !REMARKS:
-!   language: f90
-!   machine:  ibm rs/6000
-!
-! !AUTHOR:
-!   treadon          org: np23                date: 2004-08-27
-!
-!EOP
-!-------------------------------------------------------------------------
-   ! Declare local variables
-   integer(i_kind) i,j,k,nlatm2
-   real(r_kind) polnu,polnv,polsu,polsv
-
-
-   ! Compute mean along southern and northern latitudes
-   polnu=zero
-   polnv=zero
-   polsu=zero
-   polsv=zero
-   nlatm2=grd%nlat-2
-   do i=1,grd%nlon
-      polnu=polnu+gridu_in(i,1     )*sp%clons(i)-gridv_in(i,1     )*sp%slons(i)
-      polnv=polnv+gridu_in(i,1     )*sp%slons(i)+gridv_in(i,1     )*sp%clons(i)
-      polsu=polsu+gridu_in(i,nlatm2)*sp%clons(i)+gridv_in(i,nlatm2)*sp%slons(i)
-      polsv=polsv+gridu_in(i,nlatm2)*sp%slons(i)-gridv_in(i,nlatm2)*sp%clons(i)
-   enddo
-   polnu=polnu/float(grd%nlon)
-   polnv=polnv/float(grd%nlon)
-   polsu=polsu/float(grd%nlon)
-   polsv=polsv/float(grd%nlon)
-
-   ! Transfer local work array to output grid
-   do k=1,grd%itotsub
-      j=grd%nlat-grd%ltosi_s(k)
-      i=grd%ltosj_s(k)
-      if ( j == grd%nlat-1 ) then
-        gridv_out(k) = polsu*sp%slons(i)-polsv*sp%clons(i)
-      elseif ( j == 0) then
-        gridv_out(k) = -polnu*sp%slons(i)+polnv*sp%clons(i)
-      else
-        gridv_out(k)=gridv_in(i,j)
-      endif
-   enddo
-
-   return
-end subroutine general_fillv_ns

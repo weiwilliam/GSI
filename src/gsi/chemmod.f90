@@ -53,6 +53,7 @@ module chemmod
   public :: wrf_pm2_5
 
   public :: lread_ext_aerosol
+  public :: lmerra2aer
   public :: aero_ratios
   public :: upper2lower,lower2upper
 
@@ -66,6 +67,7 @@ module chemmod
   logical :: wrf_pm2_5
 
   logical :: lread_ext_aerosol ! if true, will read in aerosols from aerfXX rather than from sigfXX
+  logical :: lmerra2aer ! if true, external file is interpolated MERRA2 aerosol file
 
   real(r_kind),parameter :: s_2_5=0.942_r_kind,d_2_5=0.286_r_kind,&
        d_10=0.87_r_kind,nh4_mfac=1.375_r_kind,oc_mfac=1.8_r_kind
