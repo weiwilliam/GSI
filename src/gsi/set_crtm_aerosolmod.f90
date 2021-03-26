@@ -30,7 +30,7 @@ public Set_CRTM_Aerosol
 
 contains
 
-  subroutine Set_CRTM_Aerosol ( km, na, na_crtm, aero_name, aero_conc, rh, aerosol)
+  subroutine Set_CRTM_Aerosol ( km, na_crtm, aero_name, aero_conc, rh, aerosol)
   
 !$$$  subprogram documentation block
 !                .      .    .                                       .
@@ -82,10 +82,10 @@ contains
 ! !ARGUMENTS:
   
     integer(i_kind) , intent(in)    :: km                ! number of levels
-    integer(i_kind) , intent(in)    :: na                ! number of aerosols
+!    integer(i_kind) , intent(in)    :: na                ! number of aerosols
     integer(i_kind) , intent(in)    :: na_crtm           ! number of aerosols seen by CRTM
-    character(len=*), intent(in)    :: aero_name(na)     ! [na]    GOCART aerosol names
-    real(r_kind),     intent(inout) :: aero_conc(km,na)  ! [km,na] aerosol concentration (Kg/m2)
+    character(len=*), intent(in)    :: aero_name(na_crtm)     ! [na]    GOCART aerosol names
+    real(r_kind),     intent(inout) :: aero_conc(km,na_crtm)  ! [km,na] aerosol concentration (Kg/m2)
     real(r_kind),     intent(in)    :: rh(km)            ! [km]    relative humdity [0,1]
   
     type(CRTM_Aerosol_type), intent(inout) :: aerosol(na_crtm)! [na]   CRTM Aerosol object
@@ -106,7 +106,7 @@ contains
     indx_bc1   = getindex(aero_name,'bc1')
     indx_oc1   = getindex(aero_name,'oc1')
   
-    do i = 1, na
+    do i = 1, na_crtm
   
        if ( trim(aero_name(i)) == 'p25' ) cycle
   
@@ -148,7 +148,7 @@ contains
              = GOCART_Aerosol_size(i, aerosol(i)%type, rh(k))
        enddo
   
-    enddo  ! na
+    enddo  ! na_crtm
   
     contains
   

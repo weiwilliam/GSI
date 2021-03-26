@@ -76,6 +76,7 @@ use radiance_mod, only: n_actual_clouds,cloud_names,n_clouds_fwd,cloud_names_fwd
     n_aerosols_jac,aerosol_names_jac,rad_obs_type,cw_cv,ql_cv
 use control_vectors, only: lcalc_gfdl_cfrac
 use ncepnems_io, only: imp_physics
+use oneobmod, only: oblat,oblon,obchan !swei
 
 implicit none
 
@@ -176,6 +177,7 @@ public isazi_ang2           ! = 37 index of solar azimuth angle (degrees)
   real(r_kind)   , save ,allocatable,dimension(:)  :: table,table2,tablew ! GFDL saturation water vapor pressure tables
   real(r_kind)   , save ,allocatable,dimension(:)  :: des2,desw           ! GFDL saturation water vapor presure
   real(r_kind)   , save ,allocatable,dimension(:)  :: lcloud4crtm_wk ! cloud info usage index for each channel
+  real(r_kind)   , save ,allocatable,dimension(:)  :: laerosol4crtm_wk ! aerosol info usage index for each channel
 
   integer(i_kind),save, allocatable,dimension(:) :: map_to_crtm_ir
   integer(i_kind),save, allocatable,dimension(:) :: map_to_crtm_mwave 
@@ -201,7 +203,7 @@ public isazi_ang2           ! = 37 index of solar azimuth angle (degrees)
   logical        ,save :: lwind
   logical        ,save :: cld_sea_only_wk
   logical        ,save :: lprecip_wk 
-  logical        ,save :: mixed_use
+  logical        ,save :: mixed_use, mixed_aeruse
   integer(i_kind), parameter :: min_n_absorbers = 2
 
   integer(i_kind),save :: iedge_log
@@ -216,13 +218,21 @@ public isazi_ang2           ! = 37 index of solar azimuth angle (degrees)
 
   type(crtm_atmosphere_type),save,allocatable,dimension(:,:):: atmosphere_k
   type(crtm_atmosphere_type),save,allocatable,dimension(:,:):: atmosphere_k_clr
+  type(crtm_atmosphere_type),save,allocatable,dimension(:,:):: atmosphere_k_cld
+  type(crtm_atmosphere_type),save,allocatable,dimension(:,:):: atmosphere_k_aer
   type(crtm_surface_type),save,allocatable,dimension(:,:):: surface_k
   type(crtm_surface_type),save,allocatable,dimension(:,:):: surface_k_clr
+  type(crtm_surface_type),save,allocatable,dimension(:,:):: surface_k_cld
+  type(crtm_surface_type),save,allocatable,dimension(:,:):: surface_k_aer
   type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution
   type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution0              
   type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_clr              
+  type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_cld
+  type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_aer
   type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_k
   type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_k_clr
+  type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_k_cld
+  type(crtm_rtsolution_type),save,allocatable,dimension(:,:):: rtsolution_k_aer
 
 ! Mapping land surface type of GFS to CRTM
 !  Notes: index 0 is water, and index 13 is ice. The two indices are not
@@ -554,9 +564,20 @@ subroutine init_crtm(init_pass,mype_diaghdr,mype,nchanl,nreal,isis,obstype,radmo
 
 
 ! Are there aerosols to affect CRTM?
+ mixed_aeruse=.false.
  if (radmod%laerosol_fwd) then 
-    if(.not.allocated(aero)) allocate(aero(nsig,n_actual_aerosols))
-    if(.not.allocated(aero_conc)) allocate(aero_conc(msig,n_actual_aerosols),auxrh(msig))
+    if(.not.allocated(aero)) allocate(aero(nsig,n_aerosols_fwd))
+    if(.not.allocated(aero_conc)) allocate(aero_conc(msig,n_aerosols_fwd),auxrh(msig))
+
+    allocate(laerosol4crtm_wk(radmod%nchannel))
+    laerosol4crtm_wk(:) = radmod%laerosol4crtm(:)
+    do ii=1,radmod%nchannel
+       if (laerosol4crtm_wk(ii)<0) then
+          mixed_aeruse=.true.
+          exit
+       end if
+    end do
+     
     n_actual_aerosols_wk=n_actual_aerosols
     n_aerosols_fwd_wk=n_aerosols_fwd
     n_aerosols_jac_wk=n_aerosols_jac
@@ -693,19 +714,30 @@ endif
 
 ! Allocate structures for radiative transfer
 
- if (radmod%lcloud_fwd .and. (.not. mixed_use) .and. (.not. allocated(rtsolution0)) ) & 
-    allocate(rtsolution0(channelinfo(sensorindex)%n_channels,1))       
+ if ( ((radmod%lcloud_fwd .and. (.not. mixed_use)) .or. &
+       (radmod%laerosol_fwd .and. (.not. mixed_aeruse))) .and. &
+       (.not. allocated(rtsolution0)) ) & 
+       allocate(rtsolution0(channelinfo(sensorindex)%n_channels,1))       
 
  allocate(&
     rtsolution  (channelinfo(sensorindex)%n_channels,1),&
     rtsolution_k(channelinfo(sensorindex)%n_channels,1),&
     atmosphere_k(channelinfo(sensorindex)%n_channels,1),&
     surface_k   (channelinfo(sensorindex)%n_channels,1))
- if (mixed_use)  allocate(&
-    rtsolution_clr  (channelinfo(sensorindex)%n_channels,1),&
+
+ if (mixed_use .or. mixed_aeruse)  allocate(&
+      rtsolution_clr(channelinfo(sensorindex)%n_channels,1),&
     rtsolution_k_clr(channelinfo(sensorindex)%n_channels,1),&
     atmosphere_k_clr(channelinfo(sensorindex)%n_channels,1),&
-    surface_k_clr   (channelinfo(sensorindex)%n_channels,1))
+       surface_k_clr(channelinfo(sensorindex)%n_channels,1),&
+      rtsolution_cld(channelinfo(sensorindex)%n_channels,1),&
+    rtsolution_k_cld(channelinfo(sensorindex)%n_channels,1),&
+    atmosphere_k_cld(channelinfo(sensorindex)%n_channels,1),&
+       surface_k_cld(channelinfo(sensorindex)%n_channels,1),&
+      rtsolution_aer(channelinfo(sensorindex)%n_channels,1),&
+    rtsolution_k_aer(channelinfo(sensorindex)%n_channels,1),&
+    atmosphere_k_aer(channelinfo(sensorindex)%n_channels,1),&
+       surface_k_aer(channelinfo(sensorindex)%n_channels,1))
 
 !  Check to ensure that number of levels requested does not exceed crtm max
 
@@ -734,24 +766,31 @@ endif
    end if
  end if
 !_RTod-NOTE endif
- if (radmod%lcloud_fwd .and. (.not. mixed_use)) &                                       
- call crtm_rtsolution_create(rtsolution0,msig) 
+ if ( (radmod%lcloud_fwd .and. (.not. mixed_use)) .or. &
+      (radmod%laerosol_fwd .and. (.not. mixed_aeruse)) ) & 
+      call crtm_rtsolution_create(rtsolution0,msig) 
+
  call crtm_rtsolution_create(rtsolution,msig)
  call crtm_rtsolution_create(rtsolution_k,msig)
  call crtm_options_create(options,nchanl)
 
- if (mixed_use) then
-    call crtm_rtsolution_create(rtsolution_clr,msig)
+ if (mixed_use .or. mixed_aeruse) then
+    call crtm_rtsolution_create(  rtsolution_clr,msig)
     call crtm_rtsolution_create(rtsolution_k_clr,msig)
+    call crtm_rtsolution_create(  rtsolution_cld,msig)
+    call crtm_rtsolution_create(rtsolution_k_cld,msig)
+    call crtm_rtsolution_create(  rtsolution_aer,msig)
+    call crtm_rtsolution_create(rtsolution_k_aer,msig)
  end if
 
  if (.NOT.(crtm_atmosphere_associated(atmosphere(1)))) &
     write(6,*)myname_,' ***ERROR** creating atmosphere.'
  if (.NOT.(ANY(crtm_rtsolution_associated(rtsolution)))) &
     write(6,*)myname_,' ***ERROR** creating rtsolution.'
- if (radmod%lcloud_fwd .and. (.not. mixed_use)) then                                            
- if (.NOT.(ANY(crtm_rtsolution_associated(rtsolution0)))) &  
-    write(6,*)' ***ERROR** creating rtsolution0.'             
+ if ( (radmod%lcloud_fwd .and. (.not. mixed_use)) .or. &
+      (radmod%laerosol_fwd .and. (.not. mixed_aeruse)) ) then                                            
+    if (.NOT.(ANY(crtm_rtsolution_associated(rtsolution0)))) &  
+       write(6,*)' ***ERROR** creating rtsolution0.'             
  endif                                                        
  if (.NOT.(ANY(crtm_rtsolution_associated(rtsolution_k)))) &
     write(6,*)myname_,' ***ERROR** creating rtsolution_k.'
@@ -804,10 +843,14 @@ endif
     surface_k(ii,1)   = surface(1)
  end do
 
- if (mixed_use) then
+ if (mixed_use .or. mixed_aeruse) then
     do ii=1,nchanl
        atmosphere_k_clr(ii,1) = atmosphere(1)
-       surface_k_clr(ii,1)   = surface(1)
+          surface_k_clr(ii,1) = surface(1)
+       atmosphere_k_cld(ii,1) = atmosphere(1)
+          surface_k_cld(ii,1) = surface(1)
+       atmosphere_k_aer(ii,1) = atmosphere(1)
+          surface_k_aer(ii,1) = surface(1)
     end do
  end if
 
@@ -841,7 +884,7 @@ endif
  endif ! regional or IGBP
     
 ! Calculate RH when aerosols are present and/or cloud-fraction used
- if (n_actual_aerosols_wk>0 .or. n_clouds_fwd_wk>0) then 
+ if (n_aerosols_fwd_wk>0 .or. n_clouds_fwd_wk>0) then 
     allocate(gesqsat(lat2,lon2,nsig,nfldsig))
     ice=.true.
     iderivative=0
@@ -851,7 +894,7 @@ endif
  endif
 
 ! Initial GFDL saturation water vapor pressure tables
-  if (n_actual_aerosols_wk>0 .or. n_clouds_fwd_wk>0 .and. imp_physics==11) then
+  if (n_aerosols_fwd_wk>0 .or. n_clouds_fwd_wk>0 .and. imp_physics==11) then
 
      if (mype==0) write(6,*)myname_,':initial and load GFDL saturation water vapor pressure tables'
 
@@ -904,7 +947,7 @@ subroutine destroy_crtm
   error_status = crtm_destroy(channelinfo)
   if (error_status /= success) &
      write(6,*)myname_,':  ***ERROR*** error_status=',error_status
-  if (n_actual_aerosols_wk>0 .or. n_clouds_fwd_wk>0) then  
+  if (n_aerosols_fwd_wk>0 .or. n_clouds_fwd_wk>0) then  
      deallocate(gesqsat)
      if (imp_physics==11) then
         deallocate(table)
@@ -916,13 +959,18 @@ subroutine destroy_crtm
   endif
   call crtm_atmosphere_destroy(atmosphere(1))
   call crtm_surface_destroy(surface(1))
-  if (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) &     
-  call crtm_rtsolution_destroy(rtsolution0)    
+  if ( (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) .or. &
+       (n_aerosols_fwd_wk>0 .and. (.not. mixed_aeruse)) ) &     
+      call crtm_rtsolution_destroy(rtsolution0)
   call crtm_rtsolution_destroy(rtsolution)
   call crtm_rtsolution_destroy(rtsolution_k)
-  if (mixed_use) then
-     call crtm_rtsolution_destroy(rtsolution_clr)
+  if (mixed_use .or. mixed_aeruse) then
+     call crtm_rtsolution_destroy  (rtsolution_clr)
      call crtm_rtsolution_destroy(rtsolution_k_clr)
+     call crtm_rtsolution_destroy  (rtsolution_cld)
+     call crtm_rtsolution_destroy(rtsolution_k_cld)
+     call crtm_rtsolution_destroy  (rtsolution_aer)
+     call crtm_rtsolution_destroy(rtsolution_k_aer)
   end if
   call crtm_options_destroy(options)
   if (crtm_atmosphere_associated(atmosphere(1))) &
@@ -931,20 +979,26 @@ subroutine destroy_crtm
      write(6,*)myname_,' ***ERROR** destroying surface.'
   if (ANY(crtm_rtsolution_associated(rtsolution))) &
      write(6,*)myname_,' ***ERROR** destroying rtsolution.'
-  if (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) then            
-  if (ANY(crtm_rtsolution_associated(rtsolution0))) &    
-     write(6,*)' ***ERROR** destroying rtsolution0.'    
+  if ( (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) .or. &
+       (n_aerosols_fwd_wk>0 .and. (.not. mixed_aeruse)) ) then
+     if (ANY(crtm_rtsolution_associated(rtsolution0))) &    
+        write(6,*)' ***ERROR** destroying rtsolution0.'    
   endif                                                 
   if (ANY(crtm_rtsolution_associated(rtsolution_k))) &
      write(6,*)myname_,' ***ERROR** destroying rtsolution_k.'
   if (ANY(crtm_options_associated(options))) &
      write(6,*)myname_,' ***ERROR** destroying options.'
   deallocate(rtsolution,atmosphere_k,surface_k,rtsolution_k)
-  if (mixed_use) deallocate(rtsolution_clr,atmosphere_k_clr, & 
-                             surface_k_clr,rtsolution_k_clr)
-  if (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) &         
-  deallocate(rtsolution0) 
-  if(n_actual_aerosols_wk>0)then
+  if (mixed_use .or. mixed_aeruse) deallocate(rtsolution_clr,atmosphere_k_clr, & 
+                                               surface_k_clr,rtsolution_k_clr, &
+                                              rtsolution_cld,atmosphere_k_cld, &
+                                               surface_k_cld,rtsolution_k_cld, &
+                                              rtsolution_aer,atmosphere_k_aer, &
+                                               surface_k_aer,rtsolution_k_aer)
+  if ( (n_clouds_fwd_wk>0 .and. (.not. mixed_use)) .or. &
+       (n_aerosols_fwd_wk>0 .and. (.not. mixed_aeruse)) ) & 
+     deallocate(rtsolution0) 
+  if(n_aerosols_fwd_wk>0)then
      deallocate(aero,aero_conc,auxrh)
      if(n_aerosols_jac>0) deallocate(iaero_jac)
   endif
@@ -961,13 +1015,15 @@ subroutine destroy_crtm
   if(allocated(hwp_guess)) deallocate(hwp_guess)   
   if(allocated(icw)) deallocate(icw)
   if(allocated(lcloud4crtm_wk)) deallocate(lcloud4crtm_wk)
+  if(allocated(laerosol4crtm_wk)) deallocate(laerosol4crtm_wk)
   if(regional .or. nvege_type==IGBP_N_TYPES)deallocate(map_to_crtm_ir)
   if(regional .or. nvege_type==IGBP_N_TYPES)deallocate(map_to_crtm_mwave)
 
   return
 end subroutine destroy_crtm
 subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
-                   h,q,clw_guess,ciw_guess,rain_guess,snow_guess,prsl,prsi, &
+                   h,q,clw_guess,ciw_guess,rain_guess,snow_guess, &
+                   aero_guess,aero_name,aero_frac,prsl,prsi, &
                    trop5,tzbgr,dtsavg,sfc_speed,&
                    tsim,emissivity,ptau5,ts, &
                    emissivity_k,temp,wmix,jacobian,error_status,tsim_clr,tcc, & 
@@ -1086,6 +1142,9 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   real(r_kind),dimension(nsig,nchanl)   ,intent(  out) :: temp,ptau5,wmix
   real(r_kind),dimension(nsigradjac,nchanl),intent(out):: jacobian
   real(r_kind)                          ,intent(  out) :: clw_guess,ciw_guess,rain_guess,snow_guess
+  real(r_kind),dimension(nsig)          ,intent(  out) :: aero_guess
+  real(r_kind),    dimension(n_aerosols_fwd),intent(  out) :: aero_frac
+  character(len=1024)                       ,intent(  out) :: aero_name
   real(r_kind),dimension(nchanl)        ,intent(  out), optional  :: tsim_clr      
   real(r_kind),dimension(nchanl)        ,intent(  out), optional  :: tcc       
   real(r_kind)                          ,intent(  out), optional  :: tcwv              
@@ -1116,7 +1175,7 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   integer(i_kind):: itsig,itsigp,itsfc,itsfcp,itaer,itaerp
   integer(i_kind):: istyp00,istyp01,istyp10,istyp11
   integer(i_kind):: iqs,iozs,icfs 
-  integer(i_kind):: error_status_clr
+  integer(i_kind):: error_status_clr, error_status_cld, error_status_aer
   integer(i_kind):: idx700,dprs,dprs_min  
   integer(i_kind),dimension(8)::obs_time,anal_time
   integer(i_kind),dimension(msig) :: klevel
@@ -1635,21 +1694,29 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
 
            rtsolution_k(i,1)%radiance = zero
            rtsolution_k(i,1)%brightness_temperature = one
-           if (mixed_use) then 
+           if (mixed_use .or. mixed_aeruse) then 
               rtsolution_k_clr(i,1)%radiance = zero
               rtsolution_k_clr(i,1)%brightness_temperature = one
+              rtsolution_k_cld(i,1)%radiance = zero
+              rtsolution_k_cld(i,1)%brightness_temperature = one
+              rtsolution_k_aer(i,1)%radiance = zero
+              rtsolution_k_aer(i,1)%brightness_temperature = one
            end if
 
-           if ( trim(obstype) /= 'modis_aod' .and. trim(obstype) /= 'viirs_aod' )then
+           if ( trim(obstype) /= 'modis_aod' .and. trim(obstype) /= 'viirs_aod' ) then
 
 !        Pass CRTM array of tb for surface emissiviy calculations
-           if ( channelinfo(1)%sensor_type == crtm_microwave_sensor .and. & 
-                crtm_surface_associated(surface(1)) ) & 
-                surface(1)%sensordata%tb(i) = data_s(nreal+i) 
+              if ( channelinfo(1)%sensor_type == crtm_microwave_sensor .and. & 
+                   crtm_surface_associated(surface(1)) ) & 
+                   surface(1)%sensordata%tb(i) = data_s(nreal+i) 
 
 !       set up to return layer_optical_depth jacobians
               rtsolution_k(i,1)%layer_optical_depth = one
-              if (mixed_use) rtsolution_k_clr(i,1)%layer_optical_depth = one
+              if (mixed_use .or. mixed_aeruse) then
+                 rtsolution_k_clr(i,1)%layer_optical_depth = one
+                 rtsolution_k_cld(i,1)%layer_optical_depth = one
+                 rtsolution_k_aer(i,1)%layer_optical_depth = one 
+              end if
            endif
 
         end do
@@ -1863,10 +1930,10 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
     
 ! Space-time interpolation of aerosol fields from sigma files
 
-  if(n_actual_aerosols_wk>0)then
+  if(n_aerosols_fwd_wk>0)then
     if(size(gsi_chemguess_bundle)==1) then
-       do ii=1,n_actual_aerosols_wk
-          call gsi_bundlegetpointer(gsi_chemguess_bundle(1),aerosol_names(ii),aeroges_itsig ,ier) 
+       do ii=1,n_aerosols_fwd_wk
+          call gsi_bundlegetpointer(gsi_chemguess_bundle(1),aerosol_names_fwd(ii),aeroges_itsig ,ier) 
             do k=1,nsig
               aero(k,ii) =(aeroges_itsig(ix ,iy ,k)*w00+ &
                            aeroges_itsig(ixp,iy ,k)*w10+ &
@@ -1876,24 +1943,24 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
        enddo
     else
        if (lread_ext_aerosol) then
-          do ii=1,n_actual_aerosols_wk
-             call gsi_bundlegetpointer(gsi_chemguess_bundle(itaer),aerosol_names(ii),aeroges_itsig,ier)
-             call gsi_bundlegetpointer(gsi_chemguess_bundle(itaerp),aerosol_names(ii),aeroges_itsigp,ier)
+          do ii=1,n_aerosols_fwd_wk
+             call gsi_bundlegetpointer(gsi_chemguess_bundle(itaer ),aerosol_names_fwd(ii),aeroges_itsig ,ier)
+             call gsi_bundlegetpointer(gsi_chemguess_bundle(itaerp),aerosol_names_fwd(ii),aeroges_itsigp,ier)
              do k=1,nsig
                  aero(k,ii) =(aeroges_itsig (ix ,iy ,k)*w00+ &
-                             aeroges_itsig (ixp,iy ,k)*w10+ &
-                             aeroges_itsig (ix ,iyp,k)*w01+ &
-                             aeroges_itsig (ixp,iyp,k)*w11)*dtaer + &
-                            (aeroges_itsigp(ix ,iy ,k)*w00+ &
-                             aeroges_itsigp(ixp,iy ,k)*w10+ &
-                             aeroges_itsigp(ix ,iyp,k)*w01+ &
-                             aeroges_itsigp(ixp,iyp,k)*w11)*dtaerp
+                              aeroges_itsig (ixp,iy ,k)*w10+ &
+                              aeroges_itsig (ix ,iyp,k)*w01+ &
+                              aeroges_itsig (ixp,iyp,k)*w11)*dtaer + &
+                             (aeroges_itsigp(ix ,iy ,k)*w00+ &
+                              aeroges_itsigp(ixp,iy ,k)*w10+ &
+                              aeroges_itsigp(ix ,iyp,k)*w01+ &
+                              aeroges_itsigp(ixp,iyp,k)*w11)*dtaerp
              end do
           end do
        else
-          do ii=1,n_actual_aerosols_wk
-             call gsi_bundlegetpointer(gsi_chemguess_bundle(itsig ),aerosol_names(ii),aeroges_itsig ,ier) 
-             call gsi_bundlegetpointer(gsi_chemguess_bundle(itsigp),aerosol_names(ii),aeroges_itsigp,ier) 
+          do ii=1,n_aerosols_fwd_wk
+             call gsi_bundlegetpointer(gsi_chemguess_bundle(itsig ),aerosol_names_fwd(ii),aeroges_itsig ,ier) 
+             call gsi_bundlegetpointer(gsi_chemguess_bundle(itsigp),aerosol_names_fwd(ii),aeroges_itsigp,ier) 
              do k=1,nsig
                 aero(k,ii) =(aeroges_itsig (ix ,iy ,k)*w00+ &
                              aeroges_itsig (ixp,iy ,k)*w10+ &
@@ -1906,7 +1973,7 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
              end do
           end do
        end if ! lread_ext_aerosol
-    end if ! n_actual_aerosols_wk > 0
+    end if ! n_aerosols_fwd_wk > 0
     do k=1,nsig
         qs(k) = (gesqsat(ix ,iy ,k,itsig )*w00+ &
                  gesqsat(ixp,iy ,k,itsig )*w10+ &
@@ -1930,9 +1997,13 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
 
   call crtm_atmosphere_zero(atmosphere_k(:,:))
   call crtm_surface_zero(surface_k(:,:))
-  if (mixed_use) then
+  if (mixed_use .or. mixed_aeruse) then
      call crtm_atmosphere_zero(atmosphere_k_clr(:,:))
-     call crtm_surface_zero(surface_k_clr(:,:))
+     call    crtm_surface_zero(   surface_k_clr(:,:))
+     call crtm_atmosphere_zero(atmosphere_k_cld(:,:))
+     call    crtm_surface_zero(   surface_k_cld(:,:))
+     call crtm_atmosphere_zero(atmosphere_k_aer(:,:))
+     call    crtm_surface_zero(   surface_k_aer(:,:))
   end if
   call crtm_atmosphere_zero(atmosphere)          
   atmosphere(1)%level_pressure(0) = TOA_PRESSURE 
@@ -1942,12 +2013,23 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   rain_guess = zero
   snow_guess = zero
 
-  if (n_actual_aerosols_wk>0) then
+  if (n_aerosols_fwd_wk>0) then
+     aero_guess = zero
+     aero_frac = zero
+     aero_name = aerosol_names_fwd(1)
      do k = 1, nsig
 !       Convert mixing-ratio to concentration
         ugkg_kgm2(k)=1.0e-9_r_kind*(prsi(k)-prsi(k+1))*r1000/grav
         aero(k,:)=aero(k,:)*ugkg_kgm2(k)
+        aero_guess(k)=aero_guess(k)+sum(aero(k,:)) !swei
      enddo
+     do ii = 1, n_aerosols_fwd_wk
+        aero_frac(ii)=sum(aero(:,ii))
+        if (ii>1) then
+           aero_name=trim(aero_name)//' '//trim(aerosol_names_fwd(ii))
+        endif
+     end do
+     aero_frac(:)=aero_frac(:)/sum(aero_guess(:))
   endif
 
   sea = min(max(zero,data_s(ifrac_sea)),one)  >= 0.99_r_kind
@@ -1977,7 +2059,7 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
         enddo
      endif
 
-     if (n_actual_aerosols_wk>0) then
+     if (n_aerosols_fwd_wk>0) then
         aero_conc(k,:)=aero(kk2,:)
         auxrh(k)      =rh(kk2)
      endif
@@ -2085,13 +2167,20 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   endif
 
 ! Set aerosols for CRTM
-  if(n_actual_aerosols_wk>0) then
-     call Set_CRTM_Aerosol ( msig, n_actual_aerosols_wk, n_aerosols_fwd_wk, aerosol_names, aero_conc, auxrh, &
+  if(n_aerosols_fwd_wk>0) then
+     atmosphere(1)%n_aerosols = n_aerosols_fwd_wk
+     call Set_CRTM_Aerosol ( msig, n_aerosols_fwd_wk, aerosol_names_fwd, aero_conc, auxrh, &
                              atmosphere(1)%aerosol )
   endif
 
-! Call CRTM K Matrix model
+!swei
+  if ( (abs(data_s(ilate) - oblat) <= one/r100 .and. &
+        abs(data_s(ilone) - oblon) <= one/r100) ) then
+     write(6,*) 'mixed_use=',mixed_use,'mixed_aeruse=',mixed_aeruse
+     write(6,*) 'aero_conc at obs=',sum(aero_guess)
+  end if
 
+! Call CRTM K Matrix model
 
   error_status = 0
   if ( trim(obstype) /= 'modis_aod' .and. trim(obstype) /= 'viirs_aod' ) then
@@ -2099,9 +2188,21 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
         geometryinfo,channelinfo(sensorindex:sensorindex),atmosphere_k,&
         surface_k,rtsolution,options=options)
 
-     if (mixed_use) then 
+     if (mixed_use .or. mixed_aeruse) then 
         ! Zero out data array in cloud structure
         atmosphere(1)%n_clouds = 0
+        error_status_aer = crtm_k_matrix(atmosphere,surface,rtsolution_k_aer,&
+          geometryinfo,channelinfo(sensorindex:sensorindex),atmosphere_k_aer,&
+           surface_k_aer,rtsolution_aer,options=options)
+        atmosphere(1)%n_clouds = n_clouds_fwd_wk
+
+        atmosphere(1)%n_aerosols = 0
+        error_status_cld = crtm_k_matrix(atmosphere,surface,rtsolution_k_cld,&
+          geometryinfo,channelinfo(sensorindex:sensorindex),atmosphere_k_cld,&
+           surface_k_cld,rtsolution_cld,options=options)
+
+        atmosphere(1)%n_clouds = 0
+        atmosphere(1)%n_aerosols = 0
         error_status_clr = crtm_k_matrix(atmosphere,surface,rtsolution_k_clr,&
            geometryinfo,channelinfo(sensorindex:sensorindex),atmosphere_k_clr,&
            surface_k_clr,rtsolution_clr,options=options)
@@ -2114,6 +2215,16 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
         channelinfo(sensorindex:sensorindex),rtsolution,atmosphere_k)
   end if
 
+!swei
+  if ( (abs(data_s(ilate) - oblat) <= one/r100 .and. &
+        abs(data_s(ilone) - oblon) <= one/r100) ) then
+     do i=1,nchanl
+        if ( i == obchan ) then
+           write(6,*) 'tsim=',rtsolution(i,1)%brightness_temperature
+        end if
+     end do
+  end if
+
 ! If the CRTM returns an error flag, do not assimilate any channels for this ob
 ! and set the QC flag to 10 (done in setuprad).
 
@@ -2123,37 +2234,59 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   end if
 
 ! Calculate clear-sky Tb for AMSU-A over sea when allsky condition is on
-  if (n_clouds_fwd_wk>0 .and. present(tsim_clr) .and. (.not. mixed_use)) then
+  if (present(tsim_clr) .and. (.not. mixed_use .and. .not. mixed_aeruse)) then
      ! Zero out data array in cloud structure: water content, effective
      ! radius and variance
-
-     atmosphere(1)%n_clouds = 0
-!    call crtm_cloud_zero(atmosphere(1)%cloud)
-
+ 
+     if (n_clouds_fwd_wk>0) atmosphere(1)%n_clouds = 0
+     if (n_aerosols_fwd_wk>0) atmosphere(1)%n_aerosols = 0
+     !call crtm_cloud_zero(atmosphere(1)%cloud)
+ 
      ! call crtm forward model for clear-sky calculation
      error_status = crtm_forward(atmosphere,surface,&
                                  geometryinfo,channelinfo(sensorindex:sensorindex),&
                                  rtsolution0,options=options)
+
+!swei
+  if ( (abs(data_s(ilate) - oblat) <= one/r100 .and. &
+        abs(data_s(ilone) - oblon) <= one/r100) ) then
+     do i=1,nchanl
+        if ( i == obchan ) then
+           write(6,*) 'tsim_clr=',rtsolution0(i,1)%brightness_temperature
+        end if
+     end do
+  end if
+
      ! If the CRTM returns an error flag, do not assimilate any channels for this ob
      ! and set the QC flag to 10 (done in setuprad).
      if (error_status /=0) then
         write(6,*)'CRTM_FORWARD  ***ERROR*** during crtm_forward call ',&
         error_status
      end if
-  endif 
+  end if
 
   if (trim(obstype) /= 'modis_aod' .and. trim(obstype) /= 'viirs_aod' ) then
 ! Secant of satellite zenith angle
 
     secant_term = one/cos(data_s(ilzen_ang))
 
-    if (mixed_use) then
+    if (mixed_use .or. mixed_aeruse) then
        do i=1,nchanl
-          if (lcloud4crtm_wk(i)<0) then
-             rtsolution(i,1) = rtsolution_clr(i,1)
+          if (lcloud4crtm_wk(i)<0 .and. laerosol4crtm_wk(i)<0) then
+               rtsolution(i,1) =   rtsolution_clr(i,1)
              rtsolution_k(i,1) = rtsolution_k_clr(i,1)
              atmosphere_k(i,1) = atmosphere_k_clr(i,1)
-             surface_k(i,1) = surface_k_clr(i,1)
+                surface_k(i,1) =    surface_k_clr(i,1)
+          else if (lcloud4crtm_wk(i)<0) then
+               rtsolution(i,1) =   rtsolution_aer(i,1)
+             rtsolution_k(i,1) = rtsolution_k_aer(i,1)
+             atmosphere_k(i,1) = atmosphere_k_aer(i,1)
+                surface_k(i,1) =    surface_k_aer(i,1)
+          else if (laerosol4crtm_wk(i)<0) then
+               rtsolution(i,1) =   rtsolution_cld(i,1)
+             rtsolution_k(i,1) = rtsolution_k_cld(i,1)
+             atmosphere_k(i,1) = atmosphere_k_cld(i,1)
+                surface_k(i,1) =    surface_k_cld(i,1)
           end if
        end do
     end if
@@ -2174,8 +2307,8 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
 
 !      if (present(tcc)) tcc(i)=rtsolution(i,1)%total_cloud_cover  !crtm2.3.x
 
-       if (n_clouds_fwd_wk>0 .and. present(tsim_clr)) then
-          if (mixed_use) then 
+       if (present(tsim_clr)) then
+          if (mixed_use .or. mixed_aeruse) then 
              tsim_clr(i)=rtsolution_clr(i,1)%brightness_temperature  
           else
              tsim_clr(i)=rtsolution0(i,1)%brightness_temperature  
@@ -2230,6 +2363,12 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
           total_od   = total_od + rtsolution(i,1)%layer_optical_depth(k)
           ptau5(kk,i) = exp(-min(limit_exp,total_od*secant_term))
        end do
+
+!swei
+!      if ( (abs(data_s(ilate) - oblat) <= one/r100 .and. &
+!            abs(data_s(ilone) - oblon) <= one/r100) ) then
+!         if ( i == obchan ) write(1003,*) atmosphere_k(i,1)%temperature(:)
+!      end if
 
 !  Load jacobian array
        do k=1,nsig

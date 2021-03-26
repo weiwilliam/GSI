@@ -532,7 +532,7 @@ contains
     use gsi_chemguess_mod, only: gsi_chemguess_get
     use gsi_bundlemod, only: gsi_bundle,gsi_bundlecreate,gsi_bundledestroy
     use gsi_bundlemod, only: gsi_grid,gsi_gridcreate
-    use radiance_mod, only: n_aerosols_fwd,aerosol_names_fwd 
+    use radiance_mod, only: n_actual_aerosols,aerosol_names,n_aerosols_fwd,aerosol_names_fwd 
     use gridmod, only: grd_a,sp_a,regional
     use guess_grids, only: ifilesig,ifileaer,nfldaer
     use general_sub2grid_mod, only: sub2grid_info,general_sub2grid_create_info,general_sub2grid_destroy_info
@@ -601,12 +601,15 @@ contains
 
 !   Read in Aerosol field via nemsio
     if ( n_aerosols_fwd > 0 ) then
-       if ( mype == 0 ) write(6,*) 'n_aerosols_fwd and aerosol_names_fwd',n_aerosols_fwd,aerosol_names_fwd
+       if ( mype == 0 ) write(6,*) 'n_actual_aerosols and aerosol_names' &
+                                   ,n_actual_aerosols,aerosol_names
+       if ( mype == 0 ) write(6,*) 'n_aerosols_fwd and aerosol_names_fwd' &
+                                   ,n_aerosols_fwd,aerosol_names_fwd
        call gsi_gridcreate(chem_grid,lat2,lon2,nsig)
-       call gsi_bundlecreate(chem_bundle,chem_grid,'aux-chem-read',istatus,names3d=aerosol_names_fwd)
+       call gsi_bundlecreate(chem_bundle,chem_grid,'aux-chem-read',istatus,names3d=aerosol_names)
 
        inner_vars=1
-       num_fields=min(n_aerosols_fwd*grd_a%nsig,npe)
+       num_fields=min(n_actual_aerosols*grd_a%nsig,npe)
 !      Create temporary communication information fore read routines
        call general_sub2grid_create_info(grd_ae,inner_vars,grd_a%nlat,grd_a%nlon,grd_a%nsig,num_fields,regional)
 
@@ -629,21 +632,21 @@ contains
           if (lmerra2aer) then
              if ( .not. lread_ext_aerosol) call stop2(401)
              call general_read_m2aero(grd_ae,sp_a,filename,chem_bundle,&
-                                      n_aerosols_fwd,aerosol_names_fwd,.true.,ier)
+                                      n_actual_aerosols,aerosol_names,.true.,ier)
           else
              call general_read_nemsaero(grd_ae,sp_a,filename,chem_bundle,&
-                                        n_aerosols_fwd,aerosol_names_fwd,.true.,ier)
+                                        n_actual_aerosols,aerosol_names,.true.,ier)
           end if
 
-          do ia=1,n_aerosols_fwd
+          do ia=1,n_actual_aerosols
 
-             write(str_crtmuse,'(''i4crtm::'',a)') trim(aerosol_names_fwd(ia))
+             write(str_crtmuse,'(''i4crtm::'',a)') trim(aerosol_names(ia))
              call gsi_chemguess_get ( str_crtmuse, i4crtm, iera )
-             if(mype==0) write(6,*) trim(aerosol_names_fwd(ia))," for crtm is ",i4crtm
+             if(mype==0) write(6,*) trim(aerosol_names(ia))," for crtm is ",i4crtm
 
-             call gsi_bundlegetpointer (chem_bundle,trim(aerosol_names_fwd(ia)),ptr3d,istatus)
+             call gsi_bundlegetpointer (chem_bundle,trim(aerosol_names(ia)),ptr3d,istatus)
              if (istatus==0) then
-                select case ( trim(aerosol_names_fwd(ia)) )
+                select case ( trim(aerosol_names(ia)) )
                    case ('sulf')
                       call gsi_bundlegetpointer(gsi_chemguess_bundle(it),'sulf',ae_so4_it,iret)
                       if (iret==0) ae_so4_it=ptr3d
@@ -688,13 +691,13 @@ contains
                       if (iret==0) ae_ss004_it=ptr3d
                 end select ! different aerosol tracers
        
-                if(iret/=0 .and. mype==0 ) write(6,*) trim(aerosol_names_fwd(ia))," getpointer fail"
+                if(iret/=0 .and. mype==0 ) write(6,*) trim(aerosol_names(ia))," getpointer fail"
                 ier=ier+iret
              endif ! end if successfully able to get pointer
-          end do ! n_aerosols_fwd
+          end do ! n_actual_aerosols
 
           if (ier/=0) then
-             write(6,*) "before call read_ngac_aerosol ier=",ier
+             write(6,*) "before call ngac_aerosol ier=",ier
              cycle ! this allows code to be free from met-fields
           end if
 

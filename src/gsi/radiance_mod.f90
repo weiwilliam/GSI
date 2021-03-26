@@ -523,7 +523,7 @@ contains
           end if
        end do
 
-       if (mype==0 .and. print_verbose)  &
+       if (mype==0) &! .and. print_verbose)  &
                                write(6,*) 'radiance_obstype_init: type=', rad_type_info(k)%rtype, &
                                ' nch=',rad_type_info(k)%nchannel, &
                                ' lcloud_fwd=',rad_type_info(k)%lcloud_fwd, &

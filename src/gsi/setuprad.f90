@@ -296,11 +296,12 @@ contains
                       iomg_det, itopo_det, isst_det,iwndspeed_det
   use qcmod, only: setup_tzr_qc,ifail_scanedge_qc,ifail_outside_range
   use state_vectors, only: svars3d, levels, svars2d, ns3d
-  use oneobmod, only: lsingleradob,obchan,oblat,oblon,oneob_type
+  use oneobmod, only: lsingleradob,obchan,oblat,oblon,oneob_type,maginnov
   use correlated_obsmod, only: corr_adjust_jacobian, idnames
   use radiance_mod, only: rad_obs_type,radiance_obstype_search,radiance_ex_obserr,radiance_ex_biascor
   use sparsearr, only: sparr2, new, writearray, size, fullarray
-  use radiance_mod, only: radiance_ex_obserr_gmi,radiance_ex_biascor_gmi
+  use radiance_mod, only: radiance_ex_obserr_gmi,radiance_ex_biascor_gmi, &
+                          n_aerosols_fwd
 
   implicit none
 
@@ -400,6 +401,9 @@ contains
   real(r_kind),dimension(nchanl):: tcc         
   real(r_kind) :: ptau5deriv, ptau5derivmax
   real(r_kind) :: clw_guess,clw_guess_retrieval,ciw_guess,rain_guess,snow_guess,clw_avg
+  real(r_kind),dimension(nsig) :: aero_guess
+  character(len=1024) :: aero_name
+  real(r_kind),     dimension(n_aerosols_fwd) :: aero_frac
   real(r_kind) :: tnoise_save
   real(r_kind),dimension(:), allocatable :: rsqrtinv
   real(r_kind),dimension(:), allocatable :: rinvdiag
@@ -887,9 +891,9 @@ contains
 !       Output both tsim and tsim_clr for allsky
         tsim_clr=zero
         tcc=zero
-        if (radmod%lcloud_fwd) then
+        if (radmod%lcloud_fwd .or. radmod%laerosol_fwd) then
           call call_crtm(obstype,dtime,data_s(:,n),nchanl,nreal,ich, &
-             tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,prsltmp,prsitmp, &
+             tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,aero_guess,aero_name,aero_frac,prsltmp,prsitmp, &
              trop5,tzbgr,dtsavg,sfc_speed, &
              tsim,emissivity,ptau5,ts,emissivity_k, &
                 temp,wmix,jacobian,error_status,tsim_clr=tsim_clr,tcc=tcc, & 
@@ -900,7 +904,7 @@ contains
              data_s(ilzen_ang:iscan_ang, n) = data_s(ilzen_ang2:iscan_ang2, n)
              data_s(iszen_ang:isazi_ang, n) = data_s(iszen_ang2:isazi_ang2, n)
              call call_crtm(obstype,dtime,data_s(:,n),nchanl,nreal,ich, &
-                tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,prsltmp,prsitmp, &
+                tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,aero_guess,aero_name,aero_frac,prsltmp,prsitmp, &
                  trop5,tzbgr,dtsavg,sfc_speed, &
                  tsim2,emissivity2,ptau52,ts2,emissivity_k2, &
                  temp2,wmix2,jacobian2,error_status,tsim_clr2)
@@ -921,7 +925,7 @@ contains
           endif
         else
           call call_crtm(obstype,dtime,data_s(:,n),nchanl,nreal,ich, &
-             tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,prsltmp,prsitmp, &
+             tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,aero_guess,aero_name,aero_frac,prsltmp,prsitmp, &
              trop5,tzbgr,dtsavg,sfc_speed, &
              tsim,emissivity,ptau5,ts,emissivity_k, &
              temp,wmix,jacobian,error_status)
@@ -931,7 +935,7 @@ contains
              data_s(ilzen_ang:iscan_ang, n) = data_s(ilzen_ang2:iscan_ang2, n)
              data_s(iszen_ang:isazi_ang, n) = data_s(iszen_ang2:isazi_ang2, n)
              call call_crtm(obstype,dtime,data_s(:,n),nchanl,nreal,ich, &
-                tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,prsltmp,prsitmp, &
+                tvp,qvp,clw_guess,ciw_guess,rain_guess,snow_guess,aero_guess,aero_name,aero_frac,prsltmp,prsitmp, &
                  trop5,tzbgr,dtsavg,sfc_speed, &
                  tsim2,emissivity2,ptau52,ts2,emissivity_k2, &
                  temp2,wmix2,jacobian2,error_status)
@@ -1720,17 +1724,28 @@ contains
               else
                  ! if obchan <= zero, keep all footprints, if obchan > zero,
                  ! keep only that which has channel obchan
+                 if (iuse_rad(ich(i)) >=1 .and. id_qc(i) /= igood_qc) then
+                    ! if it's rejected in qc revert varinv and qcflag back to before qc
+                    varinv(i) = val_obs/error0(i)**2
+                    varinv_use(i) = varinv(i)
+                    id_qc(i) = igood_qc
+                 endif
                  if (i /= obchan .and. obchan > zero) then
                     varinv(i) = zero
                     varinv_use(i) = zero
                     if (id_qc(i) == igood_qc) id_qc(i) = ifail_outside_range
                  endif
               endif !cenlat/lon
+ 
            endif !lsingleradob
 
         enddo
 
-        tbc0=tbc
+        if (lsingleradob) then
+           tbc0=maginnov
+        else
+           tbc0=tbc
+        end if
         tb_obs0=tb_obs
         varinv0 = varinv
         raterr2 = zero
@@ -1753,7 +1768,7 @@ contains
             rsqrtinv=zero
             rinvdiag=zero
             account_for_corr_obs = corr_adjust_jacobian(iinstr,nchanl,nsigradjac,ich,varinv,&
-                                               tbc,tb_obs,err2,raterr2,wgtjo,jacobian,cor_opt,iii,rsqrtinv,rinvdiag)
+                                               tbc0,tb_obs0,err2,raterr2,wgtjo,jacobian,cor_opt,iii,rsqrtinv,rinvdiag)
             varinv = wgtjo
           endif
         endif
@@ -1771,7 +1786,7 @@ contains
               if(luse(n))then
                  drad    = tbc0(i)   
                  dradnob = tbcnob(i)
-                 varrad  = tbc(i)*varinv(i)
+                 varrad  = tbc0(i)*varinv(i)
                  stats(1,m)  = stats(1,m) + one              !number of obs
 !                stats(3,m)  = stats(3,m) + drad             !obs-mod(w_biascor)
 !                stats(4,m)  = stats(4,m) + tbc0(i)*drad     !(obs-mod(w_biascor))**2
@@ -1779,13 +1794,13 @@ contains
 !                stats(6,m)  = stats(6,m) + dradnob          !obs-mod(w/o_biascor)
                  stats(3,m)  = stats(3,m) + drad*cld_rbc_idx(i)        !obs-mod(w_biascor)
                  stats(4,m)  = stats(4,m) + tbc0(i)*drad*cld_rbc_idx(i)!(obs-mod(w_biascor))**2
-                 stats(5,m)  = stats(5,m) + tbc(i)*varrad    !penalty contribution
+                 stats(5,m)  = stats(5,m) + tbc0(i)*varrad    !penalty contribution
                  stats(6,m)  = stats(6,m) + dradnob*cld_rbc_idx(i)     !obs-mod(w/o_biascor)
 
                  if (account_for_corr_obs .and. (cor_opt ==1 .or. cor_opt ==2) ) then
-                   exp_arg = -half*tbc(i)**2
+                   exp_arg = -half*tbc0(i)**2
                  else
-                   exp_arg = -half*(tbc(i)/error0(i))**2
+                   exp_arg = -half*(tbc0(i)/error0(i))**2
                  endif
 
                  error=sqrt(varinv(i))
@@ -1806,7 +1821,7 @@ contains
 !             Only "good" obs are included in J calculation.
               if (iuse_rad(m) >= 1)then
                  if(luse(n))then
-                    aivals(40,is) = aivals(40,is) + tbc(i)*varrad
+                    aivals(40,is) = aivals(40,is) + tbc0(i)*varrad
                     aivals(39,is) = aivals(39,is) -two*raterr2(i)*term
                     aivals(38,is) = aivals(38,is) +one
                     if(wgt < wgtlim) aivals(2,is)=aivals(2,is)+one
@@ -1891,7 +1906,7 @@ contains
 
                     iii=iii+1
 
-                    my_head%res(iii)= tbc(ii)                   !  evecs(R)*[obs-ges innovation]
+                    my_head%res(iii)= tbc0(ii)                   !  evecs(R)*[obs-ges innovation]
                     my_head%err2(iii)= err2(ii)                 !  1/eigenvalue(R)
                     my_head%raterr2(iii)=raterr2(ii)            !  inflation factor 
                     my_head%icx(iii)= m                         ! channel index
@@ -2050,7 +2065,7 @@ contains
                  if (varinv(ii)>tiny_r_kind .and. channel_passive) then
 
                     iii=iii+1
-                    my_headm%res(iii)=tbc(ii)                 ! obs-ges innovation
+                    my_headm%res(iii)=tbc0(ii)                 ! obs-ges innovation
                     my_headm%err2(iii)=one/error0(ii)**2      ! 1/(obs error)**2  (original uninflated error)
                     my_headm%raterr2(iii)=error0(ii)**2*varinv(ii) ! (original error)/(inflated error)
                     my_headm%icx(iii)=m                       ! channel index
@@ -2208,6 +2223,9 @@ contains
              call nc_diag_header("jac_nnz", nnz)
              call nc_diag_header("jac_nind", nind)
            endif
+           if (n_aerosols_fwd>0) then
+              call nc_diag_header("aero_name",           trim(aero_name))  ! aerosol guess concentration 
+           endif
 
 !           call nc_diag_header("Outer_Loop_Iteration", headfix%jiter)
 !           call nc_diag_header("Satellite_Sensor", headfix%isis)
@@ -2327,6 +2345,7 @@ contains
               diagbuf(29) = data_s(idtc,n)
               diagbuf(30) = data_s(itz_tr,n)
            endif
+           diagbuf(31) = sum(aero_guess)
 
            if (lwrite_peakwt) then
               do i=1,nchanl_diag
@@ -2370,6 +2389,7 @@ contains
               else
                  diagbufchan(8,i)=ts(ich_diag(i))                     ! d(Tb)/d(Ts)
               end if
+              diagbufchan(9,i)=tsim_clr(ich_diag(i))
 
               if (lwrite_predterms) then
                  predterms=zero
@@ -2616,6 +2636,7 @@ contains
                     call nc_diag_data2d("Observation_Operator_Jacobian_stind", dhx_dx%st_ind)
                     call nc_diag_data2d("Observation_Operator_Jacobian_endind", dhx_dx%end_ind)
                     call nc_diag_data2d("Observation_Operator_Jacobian_val",  real(dhx_dx%val,r_single))
+                    call nc_diag_data2d("aero_guess",              sngl(aero_guess))  ! aerosol guess concentration 
                  endif
 
                  useflag=one
@@ -2626,6 +2647,8 @@ contains
                  call nc_diag_metadata("Emissivity",                            sngl(emissivity(ich_diag(i)))     )           ! surface emissivity
                  call nc_diag_metadata("Weighted_Lapse_Rate",                   sngl(tlapchn(ich_diag(i)))        )           ! stability index
                  call nc_diag_metadata("dTb_dTs",                               sngl(ts(ich_diag(i)))             )           ! d(Tb)/d(Ts)
+                 call nc_diag_metadata("Clearsky_Tb",                          sngl(tsim_clr(ich_diag(i)))       )           ! Clear-sky sim Tb
+                 call nc_diag_metadata("Simulated_Tb",                          sngl(tsim(ich_diag(i)))       )           !sim Tb
 
                  call nc_diag_metadata("BC_Constant",                           sngl(predbias(1,ich_diag(i)))      )             ! constant bias correction term
                  call nc_diag_metadata("BC_Scan_Angle",                         sngl(predbias(2,ich_diag(i)))      )             ! scan angle bias correction term
@@ -2646,6 +2669,10 @@ contains
                     call nc_diag_metadata("BCPred_Sine_Latitude",                  sngl(pred(7,ich_diag(i)))      )             ! sin(lat) bias correction term
                     call nc_diag_metadata("BCPred_Emissivity",                     sngl(pred(8,ich_diag(i)))      )             ! emissivity sensitivity bias correction term
                  endif
+                
+                 if (n_aerosols_fwd>0) then 
+                    call nc_diag_data2d("aero_frac",              sngl(aero_frac))  ! aerosol guess concentration 
+                 end if
 
                  if (lwrite_peakwt) then
                     call nc_diag_metadata("Press_Max_Weight_Function",          sngl(weightmax(ich_diag(i)))       )
@@ -2662,7 +2689,6 @@ contains
                        call nc_diag_data2d("BCPred_angord",   sngl(predbias_angord)                                )
                     endif
                  end if
-
               enddo
 !  if (adp_anglebc) then
   if (.true.) then
