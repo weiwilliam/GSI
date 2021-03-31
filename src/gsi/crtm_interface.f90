@@ -2012,6 +2012,7 @@ subroutine call_crtm(obstype,obstime,data_s,nchanl,nreal,ich, &
   ciw_guess = zero
   rain_guess = zero
   snow_guess = zero
+  aero_name = ' '
 
   if (n_aerosols_fwd_wk>0) then
      aero_guess = zero
