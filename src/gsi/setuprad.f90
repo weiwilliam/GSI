@@ -2636,7 +2636,9 @@ contains
                     call nc_diag_data2d("Observation_Operator_Jacobian_stind", dhx_dx%st_ind)
                     call nc_diag_data2d("Observation_Operator_Jacobian_endind", dhx_dx%end_ind)
                     call nc_diag_data2d("Observation_Operator_Jacobian_val",  real(dhx_dx%val,r_single))
-                    call nc_diag_data2d("aero_guess",              sngl(aero_guess))  ! aerosol guess concentration 
+                    if (n_aerosols_fwd>0) then
+                       call nc_diag_data2d("aero_guess",              sngl(aero_guess))  ! aerosol guess concentration 
+                    end if
                  endif
 
                  useflag=one
@@ -2671,7 +2673,10 @@ contains
                  endif
                 
                  if (n_aerosols_fwd>0) then 
-                    call nc_diag_data2d("aero_frac",              sngl(aero_frac))  ! aerosol guess concentration 
+                    call nc_diag_data2d("aero_frac",              sngl(aero_frac) )  ! aerosol guess concentration 
+                    if ( .not. save_jacobian) then
+                       call nc_diag_metadata("aero_load"           sngl(sum( aero_guess(:) )) )
+                    end if
                  end if
 
                  if (lwrite_peakwt) then
