@@ -2675,7 +2675,7 @@ contains
                  if (n_aerosols_fwd>0) then 
                     call nc_diag_data2d("aero_frac",              sngl(aero_frac) )  ! aerosol guess concentration 
                     if ( .not. save_jacobian) then
-                       call nc_diag_metadata("aero_load"           sngl(sum( aero_guess(:) )) )
+                       call nc_diag_metadata("aero_load",           sngl(sum( aero_guess(:) )) )
                     end if
                  end if
 

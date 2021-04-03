@@ -11,14 +11,14 @@ endif()
 
 set( NO_DEFAULT_PATH )
 if(NOT BUILD_SIGIO )
-  if(DEFINED ENV{SIGIO_LIB4} )
+  if(DEFINED ENV{SIGIO_LIB} )
     set(SIGIO_LIBRARY $ENV{SIGIO_LIB4} )
     set(SIGIOINC $ENV{SIGIO_INC4} )
     message("SIGIO library ${SIGIO_LIBRARY} set via Environment variable")
   else()
     findInc( sigio SIGIO_VER SIGIOINC )
     find_library( SIGIO_LIBRARY 
-    NAMES libsigio.a libsigio_4.a libsigio_i4r4.a libsigio_v${SIGIO_VER}_4.a
+    NAMES libsigio.a libsigio_4.a libsigio_i4r4.a libsigio_v${SIGIO_VER}_4.a libsigio_v${SIGIO_VER}.a
     HINTS 
      $ENV{COREPATH}/lib 
      /usr/local/jcsda/nwprod_gdas_2014/lib	
